@@ -1,0 +1,218 @@
+<html>
+  <head>
+    <style>
+.container {
+  position: relative;
+}
+
+.top-right {
+  position: absolute;
+  top: 0px;
+  right: 16px;
+}
+
+.top-left {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+}
+
+</style>
+
+    <meta charset="UTF-8"/>
+    <title>Problemstelle melden...</title>
+    
+    <script type="text/javascript" src="http://www.openlayers.org/api/OpenLayers.js"></script>
+    <script>
+      // Based on sample code for OpenLayers at:
+      // https://github.com/me4bruno/example-osm-locationpicker
+      // https://help.openstreetmap.org/questions/2702/extracting-coordinates-by-clicking-on-an-openstreetmap
+
+      // always updated with position of marker
+      var osmMap = null;
+      var locationPickerMarkerStyle = null;
+      
+      var locationPickerLayer = null;
+      var locationPicker = null;
+            
+      function initLocationPicker(lat, lon) {
+        if (locationPicker != null) {
+          removeLocationPicker();
+        }
+        //alert("Adding LocationPicker at "+lat+", "+lon);
+        var newPosAsLonLat = new OpenLayers.LonLat(lon, lat);
+        var newPosAsAsMercator = newPosAsLonLat.transform(proj4326, projmerc);
+        var locationPickerPoint = new OpenLayers.Geometry.Point(newPosAsAsMercator.lon, newPosAsAsMercator.lat);
+        locationPicker = new OpenLayers.Feature.Vector(locationPickerPoint, null, locationPickerMarkerStyle);
+        locationPickerLayer.addFeatures(locationPicker);
+        updatePickedPosition();
+      }
+
+      function removeLocationPicker() {
+        //alert("Removing locationPicker");
+        locationPickerLayer.removeFeatures(locationPicker);
+        locationPicker = null;
+        updatePickedPosition();
+      }
+
+      function updatePickedPosition() {
+        var posString = "-";
+        if (locationPicker != null) {
+          var selectedPositionAsMercator = new OpenLayers.LonLat(locationPicker.geometry.x, locationPicker.geometry.y);
+          var selectedPositionAsLonLat = selectedPositionAsMercator.transform(projmerc, proj4326);
+          //var mapCenterPositionAsLonLat = new OpenLayers.LonLat(lon, lat);
+          //var mapCenterPositionAsMercator = mapCenterPositionAsLonLat.transform(proj4326, projmerc);
+          //osmMap.panTo(mapCenterPositionAsMercator);
+          posString = selectedPositionAsLonLat.lat + "," + selectedPositionAsLonLat.lon;
+          document.getElementById('firstStep').style.visibility = "hidden";
+          document.getElementById('nextStep').style.visibility = "visible";
+          document.getElementById('confirmPosition').disabled = false;
+        } else {
+          document.getElementById('firstStep').style.visibility = "visible";
+          document.getElementById('nextStep').style.visibility = "hidden";
+          document.getElementById('confirmPosition').disabled = true;
+        }
+        document.getElementById('pickedPosition').innerHTML = posString;
+      }
+      
+      function checkLocationPickerVisible() {
+        if ((locationPicker==null) || !locationPicker.onScreen()) {
+          //alert("Removing because off screen");
+          removeLocationPicker();
+        } else {
+          //alert("Still on screen");
+        }
+      }
+
+      var proj4326 = new OpenLayers.Projection("EPSG:4326");
+      var projmerc = new OpenLayers.Projection("EPSG:900913");
+
+      function init(markerGraphicsUrl, initialLat, initialLon) {
+        // setup map to element 'locationPickerMap'
+        var mapCenterPositionAsLonLat = new OpenLayers.LonLat(initialLon, initialLat);
+        var mapCenterPositionAsMercator = mapCenterPositionAsLonLat.transform(proj4326, projmerc);
+        var mapZoom = 15;
+
+        osmMap = new OpenLayers.Map("locationPickerMap", {
+            controls: [
+              new OpenLayers.Control.KeyboardDefaults(),
+              new OpenLayers.Control.Navigation(),
+              new OpenLayers.Control.LayerSwitcher({
+                'ascending': false
+              }),
+              new OpenLayers.Control.PanZoomBar()              
+            ],
+            maxExtent:
+            new OpenLayers.Bounds(-20037508.34, -20037508.34,
+              20037508.34, 20037508.34),
+            numZoomLevels: 18,
+            maxResolution: 156543,
+            units: 'm',
+            projection: projmerc,
+            displayProjection: proj4326
+          });
+
+        var osmLayer = new OpenLayers.Layer.OSM("OpenStreetMap");
+        osmMap.addLayer(osmLayer);
+        osmMap.setCenter(mapCenterPositionAsMercator, mapZoom);
+        
+        // setup location picker layer
+        locationPickerLayer = new OpenLayers.Layer.Vector("LocationPicker Marker");
+        osmMap.addLayer(locationPickerLayer);
+        var dragFeature = new OpenLayers.Control.DragFeature(locationPickerLayer, {
+            onComplete: function (feature, pixel) {
+              if (feature == locationPicker) {
+                // dragging completed: update picked position
+                updatePickedPosition();
+              }
+            }
+          });
+        osmMap.addControl(dragFeature);
+        dragFeature.activate();          
+
+        locationPickerMarkerStyle = {
+          externalGraphic: markerGraphicsUrl,
+          graphicHeight: 38,
+          graphicWidth: 24,
+          graphicYOffset: -38,
+          graphicXOffset: -12
+        };
+
+        // setup location picker in center
+        //initLocationPicker(initialLat, initialLon);
+
+        // setup: click moves marker to clicked position
+        var click = new OpenLayers.Control.Click();
+        osmMap.addControl(click);
+        click.activate();
+
+        osmMap.events.register('moveend', osmMap, checkLocationPickerVisible);        
+      }
+
+      OpenLayers.Control.Click = OpenLayers.Class(OpenLayers.Control, {
+        defaultHandlerOptions: {
+          'single': true,
+          'double': true,
+          'pixelTolerance': 0,
+          'stopSingle': false,
+          'stopDouble': false
+        },
+
+        initialize: function (options) {
+          this.handlerOptions = OpenLayers.Util.extend({}, this.defaultHandlerOptions);
+          OpenLayers.Control.prototype.initialize.apply(
+            this, arguments);
+          this.handler = new OpenLayers.Handler.Click(
+              this, {
+              'click': this.triggerClick,
+              'dblclick': this.triggerDblClick
+            }, this.handlerOptions);
+        },
+
+        triggerClick: function (e) {
+          removeLocationPicker();
+          // clicked: set marker to new position and update picked position
+          var lonlat_click = osmMap.getLonLatFromPixel(e.xy);
+          var lonlat = new OpenLayers.LonLat(lonlat_click.lon, lonlat_click.lat);
+          lonlat1 = new OpenLayers.LonLat(lonlat.lon, lonlat.lat).transform(projmerc, proj4326);
+          initLocationPicker(lonlat1.lat, lonlat1.lon);
+        },
+        
+        triggerDblClick: function (e) {
+          var feat = locationPickerLayer.getFeatureFromEvent(e);
+          if ((feat) && (feat == locationPicker)) {
+            document.getElementById('confirmPosition').click();
+          }
+        }      
+
+        
+      });
+
+      
+    </script>
+  </head>
+  
+  <body style="background-color: rgb(240, 235, 248)" onload="init('poi.png', 48.30639, 14.28611);">
+    <div class="container">  
+      <h1>Schritt 1/2: Position auswählen</h1>
+      <div class="top-right"><p style="color:rgb(207, 207, 242)";><span id="pickedPosition">-</span></p></div>
+    </div>
+    <div id="locationPickerMap" style="width: 100%; height:480px; "></div>
+    <br/>
+    <div class="container">  
+    <div id="firstStep" class="top-left">Bitte Position durch Klicken auswählen.</div>
+    <div id="nextStep" class="top-left" style="visibility: hidden">Position passt? <button id="confirmPosition"><b>Weiter zur Beschreibung</b></button></div>
+    </div>  
+      
+    <script>
+      document.getElementById('confirmPosition').onclick = function () {
+        if (locationPicker != null) {
+          var selectedPositionAsMercator = new OpenLayers.LonLat(locationPicker.geometry.x, locationPicker.geometry.y);
+          var selectedPositionAsLonLat = selectedPositionAsMercator.transform(projmerc, proj4326);
+          window.location.href = 'https://docs.google.com/forms/d/e/1FAIpQLScMv1tVFd1-19esS_HKsl9e2saRUenkUbOiVBXljnUCIFUIgQ/viewform?usp=pp_url&entry.1646312533=' + selectedPositionAsLonLat.lat + ',' + selectedPositionAsLonLat.lon;
+        }
+      };
+    </script>
+
+  </body>
+</html>
